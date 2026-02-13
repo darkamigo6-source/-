@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "sklad-python-bot",
+  "private_key_id": "a8ae245a06fe6588b3ee4b6e1892ed84867f6093",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCzFHfeZhfwPRXu\njvKLnZLHACSqEDoV/FW8u5ENkYS8zTkcji6PZYRC36SwFEcEfLjeenIzBVxirC/E\napicW5iY13rTSC8jQuWked4PzYPfQfUamvX4mCDKb56G9QO+U9xRkIAl+BUCW3gJ\n32+nO++4EvbZPCroehKAkSZAY2CSL0d2jPo7FCPUExAxx5nIeOgQH70gjxWTHcLe\nVVLc8uvyWnqQwuToWrDkWz2U9ncGZ42Os9baotpEF2xkrVicCmrCO3m0B22kXhGt\nfLbMHjGf3Lo9iX2QYz5ywOd7oNJ+nN2gbPLyTDI/ApjGaRZkRHbK6+Kva2wtislN\nGUd5zKmFAgMBAAECggEAAt/iQKCaaBE5noy9sut1NvIbZI7ZsKR9Q11qI0URsbUE\nWf0brkFYypsDUGxzK1EFI4fkvPQW5IjImbTzus5klyiu+yCKyH6qn19PfEKNnYiR\nyhaoIHs1D2glPOiTbrlMld/8+QNSFUeFOl81g1vajhwDJ2X3KmyFNXpHhQZOA41Y\nFsxQi6ivFx+4ob6y3dZFBN3V2H+URH7z8J81+SJ0iIBlReFKyaUeJ4goBGdEdcc3\nB9bTV9CA8Nbg046cNYemP9fN1rMBtQrciMTaWR5je+0kIDEmghemOAEviz2bsLHZ\nJNV34XStL6NtjajGrTVaw15hZjHyURa6FJ6x2Zy5SQKBgQDcfCkaZwmuBBr/B7DQ\ngN3/7cn1nrw0qWVS2aPh3+Ue4CdSEhkdCyOnsnAZZ+U1vIB2ydricBy69x0nzbL7\nsNH72bG3PQlNPtkseWxwpIOIc6eN+y60mwTPaKjaLXWObMlaF80vl39gyG/twkRH\nWh4yOvNno7Bl85AiqPjz1VAizQKBgQDP7PG0SIA8156bLzlwxt9RrrCq4pHNjWzP\n2wsqZ+4pR11hq/R+MGQAyIVln2SSGR8FUNEXPON1NHOQ3gb5AHVxKUOot7Rgt9ww\nyug38zGhXqPPt6SUr0MUGT/fWr7h7QnhhQ9iV2pvEKmmfz5GUkRJsxRXAOgV9WR6\npfcs63lRmQKBgC5CRoVplNhTuC5FuM0mHG2zwCmuUiJiYAXP79hWF0YxFU7cyTQU\nwDhQ8cAC0k5B7Fn/49KaXwzDB/Tv7VttL8E9XVHqlmcEhqAUIbJIcehRC5h4WMY/\nt/SkKrkLzJxDKsOiNsSDbpApvYIOvjCSMb+sKqFV8I6TWWxMM19FI/kJAoGAKilI\npZ7h6fRq49rCkfyxgdWjWzNQD1czDj7DV9j1MQeYhtqgXAoh7Qq8Cew1L27KnIBT\ntZuSH8z/9gsfbNRL/CM65fZCLC58BqTOS7ITiT4wh0kcpU2Yk3W/PuIevJ8dFs6t\nXOqO2XCOhgVdMlMyJ6OZZz720KUOt9P5d/FTi1kCgYADrBts1cJvGWNNAJndWeen\n58M1wUJ6xLpQZ9RYSadFDh4w3hBMmOBpAUFgZlyIfUIa+bQlIYtWd/GZwUFio8Fb\nnKYySVZwvsg/dJzSFs1HdkthI74nUHdoM4ZN8MwB1MKlvPmijkTgPwdp8t2tNUAZ\nQeZYIKoJN4x5U7Nv7e8mFA==\n-----END PRIVATE KEY-----\n",
+  "client_email": "python-manager@sklad-python-bot.iam.gserviceaccount.com",
+  "client_id": "117395660337277279479",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/python-manager%40sklad-python-bot.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

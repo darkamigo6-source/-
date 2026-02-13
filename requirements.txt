@@ -1,0 +1,5 @@
+aiogram
+gspread
+google-auth
+reportlab
+aiohttp
