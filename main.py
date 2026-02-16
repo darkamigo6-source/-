@@ -73,106 +73,107 @@ def aggregate_data(start_dt, end_dt):
                     inventory.setdefault(k, {"name": name, "p1": 0, "p2": 0})
                     if "1" in sec: inventory[k]["p1"] += qty
                     else: inventory[k]["p2"] += qty
-        except: continue
+        except Exception as e:
+            logging.error(f"Ошибка чтения таблицы {sheet_name}: {e}")
+            continue
     return inventory, out_inv
 
-# --- ГЕНЕРАТОР PDF: КОПИЯ ТВОЕГО ВТОРОГО СКРИНШОТА ---
 def create_single_pdf(inventory, out_inv, period_text):
     buffer = io.BytesIO()
     pdfmetrics.registerFont(TTFont(FONT_NAME, "arial.ttf"))
     c = canvas.Canvas(buffer, pagesize=A4)
     w, h = A4
-    margin = 35
+    margin = 40
 
-    # Заголовок как на скрине
-    c.setFont(FONT_NAME, 14)
-    c.drawCentredString(w/2, h - 45, f"ОТЧЕТ СКЛАДА: {period_text}")
+    # Заголовок
+    c.setFont(FONT_NAME, 16)
+    c.drawCentredString(w/2, h - 50, f"ОТЧЕТ СКЛАДА: {period_text}")
     
-    y_start = h - 80
-    col_w = (w - margin*2 - 15) / 2
+    y_start = h - 90
+    col_w = (w - margin*2 - 20) / 2
 
-    def draw_block(title, items, x, start_y, bg_color):
+    def draw_table(title, data, x, start_y, bg_color):
         curr_y = start_y
         c.setStrokeColor(colors.black)
         c.setLineWidth(1)
         c.setFillColor(colors.HexColor(bg_color))
-        c.rect(x, curr_y-16, col_w, 16, fill=1, stroke=1)
+        c.rect(x, curr_y-18, col_w, 18, fill=1, stroke=1)
         c.setFillColor(colors.black)
-        c.setFont(FONT_NAME, 9)
-        c.drawCentredString(x + col_w/2, curr_y - 12, title)
+        c.setFont(FONT_NAME, 10)
+        c.drawCentredString(x + col_w/2, curr_y - 13, title)
         
-        curr_y -= 16
+        curr_y -= 18
         total = 0
-        c.setFont(FONT_NAME, 8.5)
-        
-        for name, qty in items:
-            c.setStrokeColor(colors.HexColor("#DDDDDD"))
-            c.setLineWidth(0.5)
-            c.line(x, curr_y-12, x+col_w, curr_y-12)
-            c.drawString(x+3, curr_y-9, name[:43])
-            c.drawRightString(x+col_w-3, curr_y-9, str(int(qty)) if qty.is_integer() else f"{qty}")
-            total += qty
-            curr_y -= 12
-            if curr_y < 100: # Оставляем место под футер
-                c.showPage(); curr_y = h - 50; c.setFont(FONT_NAME, 8.5)
-
-        # Итого в конкретном блоке
-        c.setStrokeColor(colors.black)
-        c.setLineWidth(0.8)
-        c.line(x, curr_y, x+col_w, curr_y)
         c.setFont(FONT_NAME, 9)
-        c.drawString(x+3, curr_y-12, "ИТОГО:")
-        c.drawRightString(x+col_w-3, curr_y-12, str(int(total)))
+        
+        if not data:
+            c.setStrokeColor(colors.lightgrey)
+            c.line(x, curr_y-15, x+col_w, curr_y-15)
+            c.drawString(x+5, curr_y-12, "Нет записей")
+            curr_y -= 15
+        else:
+            for name, qty in data:
+                c.setStrokeColor(colors.lightgrey)
+                c.setLineWidth(0.5)
+                c.line(x, curr_y-15, x+col_w, curr_y-15)
+                c.drawString(x+3, curr_y-11, name[:45])
+                # Формат 1.0 как на скрине
+                c.drawRightString(x+col_w-3, curr_y-11, f"{float(qty):.1f}")
+                total += qty
+                curr_y -= 15
+                if curr_y < 100: break # Защита от переполнения
+
+        # Итого секции
+        c.setStrokeColor(colors.black)
+        c.setLineWidth(1)
+        c.line(x, curr_y, x+col_w, curr_y)
+        c.setFont(FONT_NAME, 10)
+        c.drawString(x+3, curr_y-14, "ИТОГО:")
+        c.drawRightString(x+col_w-3, curr_y-14, f"{float(total):.1f}")
         return curr_y - 25, total
 
     # Данные
-    p1_items = sorted([(v['name'], v['p1']) for v in inventory.values() if v['p1'] > 0])
-    p2_items = sorted([(v['name'], v['p2']) for v in inventory.values() if v['p2'] > 0])
-    out_items = sorted([(k, v) for k, v in out_inv.items()])
+    p1 = sorted([(v['name'], v['p1']) for v in inventory.values() if v['p1'] > 0])
+    p2 = sorted([(v['name'], v['p2']) for v in inventory.values() if v['p2'] > 0])
+    outs = sorted([(k, v) for k, v in out_inv.items()])
 
-    # Рисуем блоки
-    y_l, s1 = draw_block("ПРИХОД: УЧАСТОК 1", p1_items, margin, y_start, "#E8F0FE")
-    y_l, s2 = draw_block("ПРИХОД: УЧАСТОК 2", p2_items, margin, y_l, "#E8F0FE")
-    y_r, s_out = draw_block("ОТГРУЗКА (OUT)", out_items, margin + col_w + 15, y_start, "#FFF2CC")
+    # Таблицы
+    y_l, s1 = draw_table("ПРИХОД: УЧАСТОК 1", p1, margin, y_start, "#E8F0FE")
+    y_l, s2 = draw_table("ПРИХОД: УЧАСТОК 2", p2, margin, y_l, "#E8F0FE")
+    y_r, s_out = draw_table("ОТГРУЗКА (OUT)", outs, margin + col_w + 20, y_start, "#FFF2CC")
 
-    # --- ОБЩИЙ ИТОГ (ТА САМАЯ ПЛАШКА) ---
-    # Определяем нижнюю точку, чтобы плашка не перекрывала текст
-    final_y = min(y_l, y_r) - 10
-    if final_y < 60: 
-        c.showPage()
-        final_y = h - 60
-
+    # --- ОБЩИЙ ИТОГ (СЕРАЯ ПЛАШКА) ---
+    # Фиксируем её внизу страницы
+    footer_y = 150 
     c.setStrokeColor(colors.black)
-    c.setLineWidth(1)
-    c.setFillColor(colors.HexColor("#F3F3F3")) # Серый фон как на скрине
-    c.rect(margin, final_y-25, w - margin*2, 25, fill=1, stroke=1)
+    c.setFillColor(colors.HexColor("#F0F0F0"))
+    c.rect(margin, footer_y, w - margin*2, 30, fill=1, stroke=1)
     
     c.setFillColor(colors.black)
-    c.setFont(FONT_NAME, 11)
-    total_in = int(s1 + s2)
-    total_out = int(s_out)
-    summary_text = f"ОБЩИЙ ПРИХОД: {total_in}   |   ОБЩАЯ ОТГРУЗКА: {total_out}"
-    c.drawCentredString(w/2, final_y - 17, summary_text)
+    c.setFont(FONT_NAME, 12)
+    total_in = float(s1 + s2)
+    total_out = float(s_out)
+    summary_text = f"ПРИХОД: {total_in:.1f}  |  ОТГРУЗКА: {total_out:.1f}"
+    c.drawCentredString(w/2, footer_y + 10, summary_text)
 
     c.showPage(); c.save(); buffer.seek(0)
     return buffer
 
-# --- ХЕНДЛЕРЫ ---
 @dp.message(Command("start"))
 async def start(m: types.Message):
-    kb = ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="📝 Отчет за сегодня")],
-        [KeyboardButton(text="📊 Отчет за день"), KeyboardButton(text="📅 Выбрать промежуток")],
-        [KeyboardButton(text="⚖️ Сравнить периоды")]
-    ], resize_keyboard=True)
-    await m.answer("📦 Отчеты исправлены. Общие итоги добавлены в футер.", reply_markup=kb)
+    kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="📝 Отчет за сегодня")], [KeyboardButton(text="📊 Отчет за день"), KeyboardButton(text="📅 Выбрать промежуток")]], resize_keyboard=True)
+    await m.answer("🚀 Бот перезапущен и готов к работе. Дизайн отчета исправлен.", reply_markup=kb)
 
 @dp.message(F.text == "📝 Отчет за сегодня")
 async def report_today(m: types.Message):
-    now = datetime.now()
-    inv, out = aggregate_data(now, now)
-    pdf = create_single_pdf(inv, out, now.strftime("%d.%m.%Y"))
-    await bot.send_document(m.chat.id, BufferedInputFile(pdf.read(), filename=f"Report_{now.strftime('%d_%m')}.pdf"))
+    try:
+        now = datetime.now()
+        inv, out = aggregate_data(now, now)
+        pdf = create_single_pdf(inv, out, now.strftime("%d.%m.%Y"))
+        await bot.send_document(m.chat.id, BufferedInputFile(pdf.read(), filename=f"Report_{now.strftime('%d_%m')}.pdf"))
+    except Exception as e:
+        logging.error(f"Ошибка генерации отчета: {e}")
+        await m.answer("❌ Произошла ошибка при создании PDF. Проверьте данные в таблицах.")
 
 @dp.message(F.text == "📊 Отчет за день")
 async def day_req(m: types.Message):
@@ -198,13 +199,6 @@ async def day_finish(cb: types.CallbackQuery):
     pdf = create_single_pdf(inv, out, d_str)
     await bot.send_document(cb.message.chat.id, BufferedInputFile(pdf.read(), filename=f"Report_{d_str}.pdf"))
     await cb.message.delete()
-
-@dp.message()
-async def save_order(m: types.Message):
-    match = re.search(r'(?i)(участ(?:ок|-к)?\s*(\d+))\s+(.+)\s+(\d+)$', m.text)
-    if match:
-        save_order_to_sheet(f"Участок {match.group(2)}", match.group(3).strip(), match.group(4))
-        await m.answer("✅")
 
 async def main(): await dp.start_polling(bot)
 if __name__ == "__main__": asyncio.run(main())
