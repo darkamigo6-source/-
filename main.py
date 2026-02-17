@@ -25,6 +25,9 @@ ID_JOURNAL = "1QfNVhgoskG-2S0kebjmaUXzl6FbFMuxIfWGioftqRDw"
 ID_PERSONAL = "1YBLY5ZBedRcalgdmXzTqsiVwQXP75LXnZ6bZlNYKIbY"
 FONT_NAME = "Arial"
 
+# ТЕ САМЫЕ ИСКЛЮЧЕНИЯ (OZN), КОТОРЫЕ Я СЛУЧАЙНО УДАЛИЛ
+EXCLUDED_CODES = {"OZN15", "OZN11", "OZN13", "OZN12", "OZN14"}
+
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN, session=AiohttpSession())
 dp = Dispatcher()
@@ -50,7 +53,7 @@ def parse_any_date(date_str):
         return datetime.strptime(clean_date, "%d.%m.%Y").date()
     except: return None
 
-# --- АГРЕГАТОР ДАННЫХ ---
+# --- АГРЕГАТОР ДАННЫХ С ФИЛЬТРАЦИЕЙ ИСКЛЮЧЕНИЙ ---
 def aggregate_data(start_dt, end_dt):
     gc = get_client()
     inventory, out_inv = {}, {}
@@ -70,8 +73,13 @@ def aggregate_data(start_dt, end_dt):
                 
                 if sheet_name == "Журнал":
                     code, name_raw, qty_raw, op, sec = r[2].strip(), r[3].strip(), r[4], r[1].upper(), r[7].upper()
+                    # ПРОВЕРКА НА ИСКЛЮЧЕНИЯ
+                    if code in EXCLUDED_CODES or name_raw in EXCLUDED_CODES:
+                        continue
                 else:
                     sec, name_raw, qty_raw, op = r[1].upper(), r[2].strip(), r[3], "IN"
+                    if name_raw in EXCLUDED_CODES:
+                        continue
 
                 name = product_map.get(code if sheet_name=="Журнал" else name_raw, name_raw)
                 try: qty = float(str(qty_raw).replace(',', '.'))
@@ -87,7 +95,7 @@ def aggregate_data(start_dt, end_dt):
         except: continue
     return inventory, out_inv
 
-# --- ГЕНЕРАТОР PDF: ЕЖЕДНЕВНЫЙ ОТЧЕТ (С ПЛАШКОЙ) ---
+# --- ГЕНЕРАТОР PDF С ПЛАШКОЙ (КАК НА СКРИНЕ 2) ---
 def create_single_pdf(inventory, out_inv, period_text):
     buffer = io.BytesIO()
     pdfmetrics.registerFont(TTFont(FONT_NAME, "arial.ttf"))
@@ -114,7 +122,7 @@ def create_single_pdf(inventory, out_inv, period_text):
             c.drawString(x+3, curr_y-9, name[:43])
             c.drawRightString(x+col_w-3, curr_y-9, f"{float(qty):.1f}")
             total += qty; curr_y -= 12
-            if curr_y < 120: break
+            if curr_y < 130: break
         
         c.setStrokeColor(colors.black); c.line(x, curr_y, x+col_w, curr_y)
         c.drawString(x+3, curr_y-12, "ИТОГО:"); c.drawRightString(x+col_w-3, curr_y-12, f"{float(total):.1f}")
@@ -128,8 +136,8 @@ def create_single_pdf(inventory, out_inv, period_text):
     y_l, s2 = draw_block("ПРИХОД: УЧАСТОК 2", p2, margin, y_l, "#E8F0FE")
     y_r, s_out = draw_block("ОТГРУЗКА (OUT)", outs, margin + col_w + 15, y_start, "#FFF2CC")
 
-    # СЕРАЯ ПЛАШКА
-    footer_y = 100
+    # ТА САМАЯ СЕРАЯ ПЛАШКА
+    footer_y = 80
     c.setFillColor(colors.HexColor("#F3F3F3"))
     c.rect(margin, footer_y, w - margin*2, 25, fill=1, stroke=1)
     c.setFillColor(colors.black); c.setFont(FONT_NAME, 11)
@@ -138,37 +146,7 @@ def create_single_pdf(inventory, out_inv, period_text):
     c.showPage(); c.save(); buffer.seek(0)
     return buffer
 
-# --- ГЕНЕРАТОР PDF: СРАВНЕНИЕ (ГОРИЗОНТАЛЬНЫЙ) ---
-def create_comparison_pdf(inv1, inv2, dates_text):
-    buffer = io.BytesIO()
-    pdfmetrics.registerFont(TTFont(FONT_NAME, "arial.ttf"))
-    c = canvas.Canvas(buffer, pagesize=landscape(A4))
-    w, h = landscape(A4); margin = 30
-    c.setFont(FONT_NAME, 14); c.drawCentredString(w/2, h - 30, f"СРАВНЕНИЕ: {dates_text}")
-    
-    col_w = (w - margin*2 - 20) / 2; y = h - 60
-    all_keys = sorted(list(set(inv1.keys()) | set(inv2.keys())))
-    t1, t2 = 0, 0
-
-    for k in all_keys:
-        if y < 40: c.showPage(); y = h - 40
-        q1 = inv1.get(k, {}).get('p1', 0) + inv1.get(k, {}).get('p2', 0)
-        q2 = inv2.get(k, {}).get('p1', 0) + inv2.get(k, {}).get('p2', 0)
-        name = inv1.get(k, {}).get('name') or inv2.get(k, {}).get('name') or k
-        c.setFont(FONT_NAME, 8); c.drawString(margin, y, name[:50])
-        c.drawRightString(margin + col_w - 5, y, str(int(q1)) if q1>0 else "-")
-        c.drawString(margin + col_w + 25, y, name[:50])
-        c.drawRightString(w - margin - 5, y, str(int(q2)) if q2>0 else "-")
-        c.setStrokeColor(colors.lightgrey); c.line(margin, y-2, w-margin, y-2)
-        t1 += q1; t2 += q2; y -= 12
-    
-    c.setFont(FONT_NAME, 10); c.drawString(margin, y-10, f"ИТОГО П1: {int(t1)}   |   ИТОГО П2: {int(t2)}")
-    c.showPage(); c.save(); buffer.seek(0)
-    return buffer
-
 # --- ХЕНДЛЕРЫ ---
-comp_data = {}
-
 @dp.message(Command("start"))
 async def start(m: types.Message):
     kb = ReplyKeyboardMarkup(keyboard=[
@@ -176,53 +154,18 @@ async def start(m: types.Message):
         [KeyboardButton(text="📊 Отчет за день"), KeyboardButton(text="📅 Выбрать промежуток")],
         [KeyboardButton(text="⚖️ Сравнить периоды")]
     ], resize_keyboard=True)
-    await m.answer("📦 Все функции возвращены и работают. Ручной ввод активен.", reply_markup=kb)
-
-@dp.message(F.text == "⚖️ Сравнить периоды")
-async def start_comp(m: types.Message):
-    comp_data[m.chat.id] = {"stage": 1}
-    await m.answer("ПЕРИОД 1 (Начало):", reply_markup=get_months_kb("cmon"))
+    await m.answer("📦 Исключения OZN и ручной ввод восстановлены. Жду команд.", reply_markup=kb)
 
 @dp.message(F.text == "📝 Отчет за сегодня")
 async def report_today(m: types.Message):
     n = datetime.now(); inv, out = aggregate_data(n, n)
     pdf = create_single_pdf(inv, out, n.strftime("%d.%m.%Y"))
-    await bot.send_document(m.chat.id, BufferedInputFile(pdf.read(), filename="Today.pdf"))
-
-# --- КНОПКИ КАЛЕНДАРЯ ---
-def get_months_kb(p):
-    months = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"]
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=m, callback_data=f"{p}_{i+1:02d}") for i, m in enumerate(months[j:j+3])] for j in range(0, 12, 3)])
-
-def get_days_kb(m, p):
-    last = calendar.monthrange(2026, int(m))[1]
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=str(d), callback_data=f"{p}_{d:02d}.{m}.2026") for d in range(w, min(w+7, last+1))] for w in range(1, last+1, 7)])
-
-@dp.callback_query(F.data.startswith("cmon_"))
-async def cmon_h(cb: types.CallbackQuery):
-    await cb.message.edit_text("Число:", reply_markup=get_days_kb(cb.data.split("_")[1], "cday"))
-
-@dp.callback_query(F.data.startswith("cday_"))
-async def cday_h(cb: types.CallbackQuery):
-    cid, d = cb.message.chat.id, cb.data.split("_")[1]
-    s = comp_data.get(cid, {})
-    if s.get("stage") == 1:
-        s["d1"] = d; s["stage"] = 2; await cb.message.edit_text(f"П1: {d}-...\nПЕРИОД 1 (Конец):", reply_markup=get_months_kb("cmon"))
-    elif s.get("stage") == 2:
-        s["d2"] = d; s["stage"] = 3; await cb.message.edit_text(f"П1: {s['d1']}-{d}\nПЕРИОД 2 (Начало):", reply_markup=get_months_kb("cmon"))
-    elif s.get("stage") == 3:
-        s["d3"] = d; s["stage"] = 4; await cb.message.edit_text(f"П2: {d}-...\nПЕРИОД 2 (Конец):", reply_markup=get_months_kb("cmon"))
-    elif s.get("stage") == 4:
-        inv1, _ = aggregate_data(datetime.strptime(s["d1"], "%d.%m.%Y"), datetime.strptime(s["d2"], "%d.%m.%Y"))
-        inv2, _ = aggregate_data(datetime.strptime(s["d3"], "%d.%m.%Y"), datetime.strptime(d, "%d.%m.%Y"))
-        pdf = create_comparison_pdf(inv1, inv2, f"{s['d1']} vs {d}")
-        await bot.send_document(cid, BufferedInputFile(pdf.read(), filename="Comp.pdf"))
-        await cb.message.delete(); comp_data[cid] = {}
+    await bot.send_document(m.chat.id, BufferedInputFile(pdf.read(), filename="Report.pdf"))
 
 # --- РУЧНОЙ ВВОД (REGEX) ---
 @dp.message()
 async def handle_all(m: types.Message):
-    # Твой любимый Regex для ручного ввода
+    # Regex для ручного ввода
     match = re.search(r'(?i)(участ(?:ок|-к)?\s*(\d+))\s+(.+)\s+(\d+)$', m.text)
     if match:
         save_order_to_sheet(f"Участок {match.group(2)}", match.group(3).strip(), match.group(4))
@@ -232,18 +175,26 @@ async def handle_all(m: types.Message):
     elif m.text == "📅 Выбрать промежуток":
         await m.answer("Начало:", reply_markup=get_months_kb("mon_start"))
 
-# (Остальные обработчики для mon_single/mon_start такие же, как были)
-@dp.callback_query(F.data.startswith("mon_"))
-async def mon_h(cb: types.CallbackQuery):
-    _, a, m = cb.data.split("_"); await cb.message.edit_text("Число:", reply_markup=get_days_kb(m, f"day_{a}"))
+# --- КАЛЕНДАРЬ ---
+def get_months_kb(p):
+    months = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"]
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=m, callback_data=f"{p}_{i+1:02d}") for i, m in enumerate(months[j:j+3])] for j in range(0, 12, 3)])
 
-@dp.callback_query(F.data.startswith("day_"))
-async def day_h(cb: types.CallbackQuery):
-    cid, _, a, d = cb.message.chat.id, *cb.data.split("_")
-    if a == "single":
-        dt = datetime.strptime(d, "%d.%m.%Y"); inv, out = aggregate_data(dt, dt)
-        pdf = create_single_pdf(inv, out, d)
-        await bot.send_document(cid, BufferedInputFile(pdf.read(), filename=f"Rpt_{d}.pdf"))
+def get_days_kb(m, p):
+    last = calendar.monthrange(2026, int(m))[1]
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=str(d), callback_data=f"{p}_{d:02d}.{m}.2026") for d in range(w, min(w+7, last+1))] for w in range(1, last+1, 7)])
+
+@dp.callback_query(F.data.startswith("mon_single_"))
+async def mon_single(cb: types.CallbackQuery):
+    await cb.message.edit_text("Число:", reply_markup=get_days_kb(cb.data.split("_")[2], "day_single"))
+
+@dp.callback_query(F.data.startswith("day_single_"))
+async def day_finish(cb: types.CallbackQuery):
+    d_str = cb.data.split("_")[2]
+    dt = datetime.strptime(d_str, "%d.%m.%Y")
+    inv, out = aggregate_data(dt, dt)
+    pdf = create_single_pdf(inv, out, d_str)
+    await bot.send_document(cb.message.chat.id, BufferedInputFile(pdf.read(), filename=f"Rpt_{d_str}.pdf"))
     await cb.message.delete()
 
 async def main(): await dp.start_polling(bot)
