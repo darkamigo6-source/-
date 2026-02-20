@@ -8,13 +8,15 @@ from datetime import datetime
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
 
 import gspread
 from google.oauth2.service_account import Credentials
 
 from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
@@ -24,14 +26,17 @@ TOKEN = "8364799110:AAHZgoSmjBF-C1rnqOyaMeft4VbBoD7Wkys"
 ID_JOURNAL = "1QfNVhgoskG-2S0kebjmaUXzl6FbFMuxIfWGioftqRDw"
 ID_PERSONAL = "1YBLY5ZBedRcalgdmXzTqsiVwQXP75LXnZ6bZlNYKIbY"
 FONT_NAME = "Arial"
-
-# ТЕ САМЫЕ ИСКЛЮЧЕНИЯ (OZN), КОТОРЫЕ Я СЛУЧАЙНО УДАЛИЛ
 EXCLUDED_CODES = {"OZN15", "OZN11", "OZN13", "OZN12", "OZN14"}
 
 logging.basicConfig(level=logging.INFO)
-bot = Bot(token=TOKEN, session=AiohttpSession())
-dp = Dispatcher()
+bot = Bot(token=TOKEN)
+dp = Dispatcher(storage=MemoryStorage())
 
+class ReportStates(StatesGroup):
+    wait_start_date = State()
+    wait_end_date = State()
+
+# --- ФУНКЦИИ GOOGLE / PDF (ТВОИ БЕЗ ИЗМЕНЕНИЙ) ---
 def get_client():
     scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
     creds = Credentials.from_service_account_file('creds.json', scopes=scopes)
@@ -53,7 +58,6 @@ def parse_any_date(date_str):
         return datetime.strptime(clean_date, "%d.%m.%Y").date()
     except: return None
 
-# --- АГРЕГАТОР ДАННЫХ С ФИЛЬТРАЦИЕЙ ИСКЛЮЧЕНИЙ ---
 def aggregate_data(start_dt, end_dt):
     gc = get_client()
     inventory, out_inv = {}, {}
@@ -73,13 +77,10 @@ def aggregate_data(start_dt, end_dt):
                 
                 if sheet_name == "Журнал":
                     code, name_raw, qty_raw, op, sec = r[2].strip(), r[3].strip(), r[4], r[1].upper(), r[7].upper()
-                    # ПРОВЕРКА НА ИСКЛЮЧЕНИЯ
-                    if code in EXCLUDED_CODES or name_raw in EXCLUDED_CODES:
-                        continue
+                    if code in EXCLUDED_CODES or name_raw in EXCLUDED_CODES: continue
                 else:
                     sec, name_raw, qty_raw, op = r[1].upper(), r[2].strip(), r[3], "IN"
-                    if name_raw in EXCLUDED_CODES:
-                        continue
+                    if name_raw in EXCLUDED_CODES: continue
 
                 name = product_map.get(code if sheet_name=="Журнал" else name_raw, name_raw)
                 try: qty = float(str(qty_raw).replace(',', '.'))
@@ -95,7 +96,6 @@ def aggregate_data(start_dt, end_dt):
         except: continue
     return inventory, out_inv
 
-# --- ГЕНЕРАТОР PDF С ПЛАШКОЙ (КАК НА СКРИНЕ 2) ---
 def create_single_pdf(inventory, out_inv, period_text):
     buffer = io.BytesIO()
     pdfmetrics.registerFont(TTFont(FONT_NAME, "arial.ttf"))
@@ -119,7 +119,7 @@ def create_single_pdf(inventory, out_inv, period_text):
         for name, qty in items:
             c.setStrokeColor(colors.HexColor("#DDDDDD"))
             c.line(x, curr_y-12, x+col_w, curr_y-12)
-            c.drawString(x+3, curr_y-9, name[:43])
+            c.drawString(x+3, curr_y-9, name[:40])
             c.drawRightString(x+col_w-3, curr_y-9, f"{float(qty):.1f}")
             total += qty; curr_y -= 12
             if curr_y < 130: break
@@ -136,7 +136,6 @@ def create_single_pdf(inventory, out_inv, period_text):
     y_l, s2 = draw_block("ПРИХОД: УЧАСТОК 2", p2, margin, y_l, "#E8F0FE")
     y_r, s_out = draw_block("ОТГРУЗКА (OUT)", outs, margin + col_w + 15, y_start, "#FFF2CC")
 
-    # ТА САМАЯ СЕРАЯ ПЛАШКА
     footer_y = 80
     c.setFillColor(colors.HexColor("#F3F3F3"))
     c.rect(margin, footer_y, w - margin*2, 25, fill=1, stroke=1)
@@ -146,56 +145,102 @@ def create_single_pdf(inventory, out_inv, period_text):
     c.showPage(); c.save(); buffer.seek(0)
     return buffer
 
-# --- ХЕНДЛЕРЫ ---
-@dp.message(Command("start"))
-async def start(m: types.Message):
-    kb = ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="📝 Отчет за сегодня")],
-        [KeyboardButton(text="📊 Отчет за день"), KeyboardButton(text="📅 Выбрать промежуток")],
-        [KeyboardButton(text="⚖️ Сравнить периоды")]
-    ], resize_keyboard=True)
-    await m.answer("📦 Исключения OZN и ручной ввод восстановлены. Жду команд.", reply_markup=kb)
-
-@dp.message(F.text == "📝 Отчет за сегодня")
-async def report_today(m: types.Message):
-    n = datetime.now(); inv, out = aggregate_data(n, n)
-    pdf = create_single_pdf(inv, out, n.strftime("%d.%m.%Y"))
-    await bot.send_document(m.chat.id, BufferedInputFile(pdf.read(), filename="Report.pdf"))
-
-# --- РУЧНОЙ ВВОД (REGEX) ---
-@dp.message()
-async def handle_all(m: types.Message):
-    # Regex для ручного ввода
-    match = re.search(r'(?i)(участ(?:ок|-к)?\s*(\d+))\s+(.+)\s+(\d+)$', m.text)
-    if match:
-        save_order_to_sheet(f"Участок {match.group(2)}", match.group(3).strip(), match.group(4))
-        await m.answer("✅")
-    elif m.text == "📊 Отчет за день":
-        await m.answer("Месяц:", reply_markup=get_months_kb("mon_single"))
-    elif m.text == "📅 Выбрать промежуток":
-        await m.answer("Начало:", reply_markup=get_months_kb("mon_start"))
-
-# --- КАЛЕНДАРЬ ---
+# --- КЛАВИАТУРЫ ---
 def get_months_kb(p):
     months = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"]
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=m, callback_data=f"{p}_{i+1:02d}") for i, m in enumerate(months[j:j+3])] for j in range(0, 12, 3)])
 
 def get_days_kb(m, p):
     last = calendar.monthrange(2026, int(m))[1]
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=str(d), callback_data=f"{p}_{d:02d}.{m}.2026") for d in range(w, min(w+7, last+1))] for w in range(1, last+1, 7)])
+    rows = []
+    for w in range(1, last + 1, 7):
+        row = [InlineKeyboardButton(text=str(d), callback_data=f"{p}_{d:02d}.{m}.2026") for d in range(w, min(w + 7, last + 1))]
+        rows.append(row)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
+# --- ХЕНДЛЕРЫ КОМАНД И КНОПОК ---
+@dp.message(Command("start"))
+async def start(m: types.Message):
+    kb = ReplyKeyboardMarkup(keyboard=[
+        [KeyboardButton(text="📝 Отчет за сегодня")],
+        [KeyboardButton(text="📊 Отчет за день"), KeyboardButton(text="📅 Выбрать промежуток")]
+    ], resize_keyboard=True)
+    await m.answer("📦 Бот готов. Используйте меню или введите: 'Участок 1 Название 10'", reply_markup=kb)
+
+@dp.message(F.text == "📝 Отчет за сегодня")
+async def report_today(m: types.Message):
+    n = datetime.now(); inv, out = aggregate_data(n, n)
+    pdf = create_single_pdf(inv, out, n.strftime("%d.%m.%Y"))
+    await bot.send_document(m.chat.id, BufferedInputFile(pdf.read(), filename="Today.pdf"))
+
+@dp.message(F.text == "📊 Отчет за день")
+async def report_day_cmd(m: types.Message):
+    await m.answer("Выберите месяц:", reply_markup=get_months_kb("mon_single"))
+
+@dp.message(F.text == "📅 Выбрать промежуток")
+async def report_range_cmd(m: types.Message):
+    await m.answer("Выберите месяц НАЧАЛА:", reply_markup=get_months_kb("mon_start"))
+
+# --- CALLBACKS: ОДИН ДЕНЬ ---
 @dp.callback_query(F.data.startswith("mon_single_"))
 async def mon_single(cb: types.CallbackQuery):
-    await cb.message.edit_text("Число:", reply_markup=get_days_kb(cb.data.split("_")[2], "day_single"))
+    m = cb.data.split("_")[2]
+    await cb.message.edit_text("Выберите число:", reply_markup=get_days_kb(m, "day_single"))
 
 @dp.callback_query(F.data.startswith("day_single_"))
-async def day_finish(cb: types.CallbackQuery):
+async def day_single_finish(cb: types.CallbackQuery):
     d_str = cb.data.split("_")[2]
     dt = datetime.strptime(d_str, "%d.%m.%Y")
     inv, out = aggregate_data(dt, dt)
     pdf = create_single_pdf(inv, out, d_str)
-    await bot.send_document(cb.message.chat.id, BufferedInputFile(pdf.read(), filename=f"Rpt_{d_str}.pdf"))
+    await bot.send_document(cb.message.chat.id, BufferedInputFile(pdf.read(), filename=f"Report_{d_str}.pdf"))
     await cb.message.delete()
 
-async def main(): await dp.start_polling(bot)
-if __name__ == "__main__": asyncio.run(main())
+# --- CALLBACKS: ПРОМЕЖУТОК ---
+@dp.callback_query(F.data.startswith("mon_start_"))
+async def mon_start(cb: types.CallbackQuery):
+    m = cb.data.split("_")[2]
+    await cb.message.edit_text("Число НАЧАЛА:", reply_markup=get_days_kb(m, "day_start"))
+
+@dp.callback_query(F.data.startswith("day_start_"))
+async def day_start_save(cb: types.CallbackQuery, state: FSMContext):
+    date_start = cb.data.split("_")[2]
+    await state.update_data(start_date=date_start)
+    await cb.message.edit_text(f"Начало: {date_start}. Теперь выберите месяц КОНЦА:", reply_markup=get_months_kb("mon_end"))
+
+@dp.callback_query(F.data.startswith("mon_end_"))
+async def mon_end(cb: types.CallbackQuery):
+    m = cb.data.split("_")[2]
+    await cb.message.edit_text("Число КОНЦА:", reply_markup=get_days_kb(m, "day_end"))
+
+@dp.callback_query(F.data.startswith("day_end_"))
+async def day_end_finish(cb: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    d1_str = data.get("start_date")
+    d2_str = cb.data.split("_")[2]
+    
+    dt1 = datetime.strptime(d1_str, "%d.%m.%Y")
+    dt2 = datetime.strptime(d2_str, "%d.%m.%Y")
+    
+    inv, out = aggregate_data(dt1, dt2)
+    pdf = create_single_pdf(inv, out, f"{d1_str} - {d2_str}")
+    await bot.send_document(cb.message.chat.id, BufferedInputFile(pdf.read(), filename="Range_Report.pdf"))
+    await cb.message.delete()
+    await state.clear()
+
+# --- УНИВЕРСАЛЬНЫЙ ОБРАБОТЧИК (Regex) ---
+@dp.message()
+async def handle_all(m: types.Message):
+    match = re.search(r'(?i)(участ(?:ок|-к)?\s*(\d+))\s+(.+)\s+(\d+)$', m.text)
+    if match:
+        save_order_to_sheet(f"Участок {match.group(2)}", match.group(3).strip(), match.group(4))
+        await m.answer("✅ Запись добавлена")
+    else:
+        # Если это просто текст, который не подошел под Regex
+        pass 
+
+async def main():
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
