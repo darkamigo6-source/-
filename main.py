@@ -36,7 +36,7 @@ class ReportStates(StatesGroup):
     wait_start_date = State()
     wait_end_date = State()
 
-# --- ФУНКЦИИ GOOGLE / PDF (ТВОИ БЕЗ ИЗМЕНЕНИЙ) ---
+# --- ФУНКЦИИ GOOGLE / PDF ---
 def get_client():
     scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
     creds = Credentials.from_service_account_file('creds.json', scopes=scopes)
@@ -91,8 +91,13 @@ def aggregate_data(start_dt, end_dt):
                 else:
                     k = name.upper()
                     inventory.setdefault(k, {"name": name, "p1": 0, "p2": 0})
-                    if "1" in sec: inventory[k]["p1"] += qty
-                    else: inventory[k]["p2"] += qty
+                    
+                    # ИСПРАВЛЕННАЯ ЛОГИКА РАСПРЕДЕЛЕНИЯ ПО УЧАСТКАМ
+                    sec_clean = str(sec).upper()
+                    if "1" in sec_clean: 
+                        inventory[k]["p1"] += qty
+                    elif "2" in sec_clean: 
+                        inventory[k]["p2"] += qty
         except: continue
     return inventory, out_inv
 
@@ -100,49 +105,73 @@ def create_single_pdf(inventory, out_inv, period_text):
     buffer = io.BytesIO()
     pdfmetrics.registerFont(TTFont(FONT_NAME, "arial.ttf"))
     c = canvas.Canvas(buffer, pagesize=A4)
-    w, h = A4; margin = 35
-
-    c.setFont(FONT_NAME, 14)
-    c.drawCentredString(w/2, h - 45, f"ОТЧЕТ СКЛАДА: {period_text}")
-    
-    y_start = h - 85
+    w, h = A4
+    margin = 35
     col_w = (w - margin*2 - 15) / 2
-
-    def draw_block(title, items, x, start_y, bg_color):
-        curr_y = start_y
-        c.setFillColor(colors.HexColor(bg_color))
-        c.rect(x, curr_y-16, col_w, 16, fill=1, stroke=1)
-        c.setFillColor(colors.black); c.setFont(FONT_NAME, 9)
-        c.drawCentredString(x + col_w/2, curr_y - 12, title)
-        curr_y -= 16; total = 0; c.setFont(FONT_NAME, 8.5)
-        
-        for name, qty in items:
-            c.setStrokeColor(colors.HexColor("#DDDDDD"))
-            c.line(x, curr_y-12, x+col_w, curr_y-12)
-            c.drawString(x+3, curr_y-9, name[:40])
-            c.drawRightString(x+col_w-3, curr_y-9, f"{float(qty):.1f}")
-            total += qty; curr_y -= 12
-            if curr_y < 130: break
-        
-        c.setStrokeColor(colors.black); c.line(x, curr_y, x+col_w, curr_y)
-        c.drawString(x+3, curr_y-12, "ИТОГО:"); c.drawRightString(x+col_w-3, curr_y-12, f"{float(total):.1f}")
-        return curr_y - 25, total
 
     p1 = sorted([(v['name'], v['p1']) for v in inventory.values() if v['p1'] > 0])
     p2 = sorted([(v['name'], v['p2']) for v in inventory.values() if v['p2'] > 0])
     outs = sorted([(k, v) for k, v in out_inv.items()])
 
-    y_l, s1 = draw_block("ПРИХОД: УЧАСТОК 1", p1, margin, y_start, "#E8F0FE")
-    y_l, s2 = draw_block("ПРИХОД: УЧАСТОК 2", p2, margin, y_l, "#E8F0FE")
-    y_r, s_out = draw_block("ОТГРУЗКА (OUT)", outs, margin + col_w + 15, y_start, "#FFF2CC")
+    total_in = sum(qty for name, qty in p1 + p2)
+    total_out = sum(qty for name, qty in outs)
 
-    footer_y = 80
-    c.setFillColor(colors.HexColor("#F3F3F3"))
-    c.rect(margin, footer_y, w - margin*2, 25, fill=1, stroke=1)
-    c.setFillColor(colors.black); c.setFont(FONT_NAME, 11)
-    c.drawCentredString(w/2, footer_y + 8, f"ОБЩИЙ ПРИХОД: {float(s1+s2):.1f}   |   ОБЩАЯ ОТГРУЗКА: {float(s_out):.1f}")
+    # ИСПРАВЛЕННАЯ ЛОГИКА ОТРИСОВКИ С УЧЕТОМ СТРАНИЦ
+    in_items = []
+    if p1: in_items += [("HEADER", "ПРИХОД: УЧАСТОК 1", "#E8F0FE")] + p1
+    if p2: in_items += [("HEADER", "ПРИХОД: УЧАСТОК 2", "#E8F0FE")] + p2
+        
+    out_items = []
+    if outs: out_items += [("HEADER", "ОТГРУЗКА (OUT)", "#FFF2CC")] + outs
 
-    c.showPage(); c.save(); buffer.seek(0)
+    def draw_page_framework(page_num):
+        c.setFont(FONT_NAME, 14)
+        c.drawCentredString(w/2, h - 45, f"ОТЧЕТ СКЛАДА: {period_text} (Стр. {page_num})")
+        footer_y = 60
+        c.setFillColor(colors.HexColor("#F3F3F3"))
+        c.rect(margin, footer_y, w - margin*2, 25, fill=1, stroke=1)
+        c.setFillColor(colors.black)
+        c.setFont(FONT_NAME, 11)
+        c.drawCentredString(w/2, footer_y + 8, f"ОБЩИЙ ПРИХОД: {float(total_in):.1f}   |   ОБЩАЯ ОТГРУЗКА: {float(total_out):.1f}")
+
+    def draw_column(items, x_pos):
+        y_pos = h - 85
+        for i, item in enumerate(items):
+            if y_pos < 110: # Конец страницы
+                return items[i:] # Возвращаем то, что не влезло
+            if item[0] == "HEADER":
+                c.setFillColor(colors.HexColor(item[2]))
+                c.rect(x_pos, y_pos-16, col_w, 16, fill=1, stroke=1)
+                c.setFillColor(colors.black)
+                c.setFont(FONT_NAME, 9)
+                c.drawCentredString(x_pos + col_w/2, y_pos - 12, item[1])
+                y_pos -= 25
+            else:
+                name, qty = item
+                c.setStrokeColor(colors.HexColor("#DDDDDD"))
+                c.line(x_pos, y_pos-12, x_pos+col_w, y_pos-12)
+                c.setFillColor(colors.black)
+                c.setFont(FONT_NAME, 8.5)
+                c.drawString(x_pos+3, y_pos-9, name[:40])
+                c.drawRightString(x_pos+col_w-3, y_pos-9, f"{float(qty):.1f}")
+                y_pos -= 12
+        return []
+
+    page_num = 1
+    while in_items or out_items:
+        draw_page_framework(page_num)
+        if in_items:
+            in_items = draw_column(in_items, margin)
+        if out_items:
+            out_items = draw_column(out_items, margin + col_w + 15)
+            
+        if in_items or out_items:
+            c.showPage()
+            page_num += 1
+
+    c.showPage()
+    c.save()
+    buffer.seek(0)
     return buffer
 
 # --- КЛАВИАТУРЫ ---
@@ -236,7 +265,6 @@ async def handle_all(m: types.Message):
         save_order_to_sheet(f"Участок {match.group(2)}", match.group(3).strip(), match.group(4))
         await m.answer("✅ Запись добавлена")
     else:
-        # Если это просто текст, который не подошел под Regex
         pass 
 
 async def main():
