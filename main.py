@@ -36,7 +36,7 @@ class ReportStates(StatesGroup):
     wait_start_date = State()
     wait_end_date = State()
 
-# --- ФУНКЦИИ GOOGLE / PDF ---
+# --- ФУНКЦИИ GOOGLE ---
 def get_client():
     scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
     creds = Credentials.from_service_account_file('creds.json', scopes=scopes)
@@ -58,6 +58,7 @@ def parse_any_date(date_str):
         return datetime.strptime(clean_date, "%d.%m.%Y").date()
     except: return None
 
+# --- АГРЕГАЦИЯ ДАННЫХ ---
 def aggregate_data(start_dt, end_dt):
     gc = get_client()
     inventory, out_inv = {}, {}
@@ -91,8 +92,7 @@ def aggregate_data(start_dt, end_dt):
                 else:
                     k = name.upper()
                     inventory.setdefault(k, {"name": name, "p1": 0, "p2": 0})
-                    
-                    # ИСПРАВЛЕННАЯ ЛОГИКА РАСПРЕДЕЛЕНИЯ ПО УЧАСТКАМ
+                    # Точная проверка участка (исправляет проблему "32 упаковки")
                     sec_clean = str(sec).upper()
                     if "1" in sec_clean: 
                         inventory[k]["p1"] += qty
@@ -101,6 +101,7 @@ def aggregate_data(start_dt, end_dt):
         except: continue
     return inventory, out_inv
 
+# --- ГЕНЕРАЦИЯ PDF ---
 def create_single_pdf(inventory, out_inv, period_text):
     buffer = io.BytesIO()
     pdfmetrics.registerFont(TTFont(FONT_NAME, "arial.ttf"))
@@ -109,21 +110,18 @@ def create_single_pdf(inventory, out_inv, period_text):
     margin = 35
     col_w = (w - margin*2 - 15) / 2
 
-    # Данные по участкам
+    # Списки данных
     p1 = sorted([(v['name'], v['p1']) for v in inventory.values() if v['p1'] > 0])
     p2 = sorted([(v['name'], v['p2']) for v in inventory.values() if v['p2'] > 0])
     outs = sorted([(k, v) for k, v in out_inv.items()])
 
-    # Считаем суммы для каждого блока отдельно
+    # Итоги по группам
     sum_p1 = sum(qty for _, qty in p1)
     sum_p2 = sum(qty for _, qty in p2)
     sum_outs = sum(qty for _, qty in outs)
-    
-    # Общие итоги для подвала
     total_in = sum_p1 + sum_p2
-    total_out = sum_outs
 
-    # Формируем список строк для печати с разделителями "ИТОГО"
+    # Формируем структуру документа (с итогами после каждого блока)
     in_items = []
     if p1:
         in_items += [("HEADER", "ПРИХОД: УЧАСТОК 1", "#E8F0FE")] + p1
@@ -145,37 +143,31 @@ def create_single_pdf(inventory, out_inv, period_text):
         c.rect(margin, footer_y, w - margin*2, 25, fill=1, stroke=1)
         c.setFillColor(colors.black)
         c.setFont(FONT_NAME, 11)
-        c.drawCentredString(w/2, footer_y + 8, f"ОБЩИЙ ПРИХОД: {float(total_in):.1f}   |   ОБЩАЯ ОТГРУЗКА: {float(total_out):.1f}")
+        c.drawCentredString(w/2, footer_y + 8, f"ОБЩИЙ ПРИХОД: {float(total_in):.1f}   |   ОБЩАЯ ОТГРУЗКА: {float(sum_outs):.1f}")
 
     def draw_column(items, x_pos):
         y_pos = h - 85
         for i, item in enumerate(items):
-            if y_pos < 110: 
-                return items[i:]
+            if y_pos < 110: return items[i:] # Перенос на новую страницу
 
             if item[0] == "HEADER":
                 c.setFillColor(colors.HexColor(item[2]))
                 c.rect(x_pos, y_pos-16, col_w, 16, fill=1, stroke=1)
-                c.setFillColor(colors.black)
-                c.setFont(FONT_NAME, 9)
+                c.setFillColor(colors.black); c.setFont(FONT_NAME, 9)
                 c.drawCentredString(x_pos + col_w/2, y_pos - 12, item[1])
                 y_pos -= 25
             elif item[0] == "TOTAL_BLOCK":
-                # Рисуем жирную линию и итог участка
-                c.setStrokeColor(colors.black)
-                c.setLineWidth(1)
+                c.setStrokeColor(colors.black); c.setLineWidth(1)
                 c.line(x_pos, y_pos-2, x_pos+col_w, y_pos-2)
                 c.setFont(FONT_NAME, 9)
                 c.drawString(x_pos+3, y_pos-14, item[1])
                 c.drawRightString(x_pos+col_w-3, y_pos-14, f"{float(item[2]):.1f}")
-                y_pos -= 30
+                y_pos -= 35
             else:
                 name, qty = item
-                c.setStrokeColor(colors.HexColor("#DDDDDD"))
-                c.setLineWidth(0.5)
+                c.setStrokeColor(colors.HexColor("#DDDDDD")); c.setLineWidth(0.5)
                 c.line(x_pos, y_pos-12, x_pos+col_w, y_pos-12)
-                c.setFillColor(colors.black)
-                c.setFont(FONT_NAME, 8.5)
+                c.setFillColor(colors.black); c.setFont(FONT_NAME, 8.5)
                 c.drawString(x_pos+3, y_pos-9, name[:40])
                 c.drawRightString(x_pos+col_w-3, y_pos-9, f"{float(qty):.1f}")
                 y_pos -= 12
@@ -187,12 +179,9 @@ def create_single_pdf(inventory, out_inv, period_text):
         if in_items: in_items = draw_column(in_items, margin)
         if out_items: out_items = draw_column(out_items, margin + col_w + 15)
         if in_items or out_items:
-            c.showPage()
-            page_num += 1
+            c.showPage(); page_num += 1
 
-    c.showPage()
-    c.save()
-    buffer.seek(0)
+    c.showPage(); c.save(); buffer.seek(0)
     return buffer
 
 # --- КЛАВИАТУРЫ ---
@@ -208,20 +197,20 @@ def get_days_kb(m, p):
         rows.append(row)
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
-# --- ХЕНДЛЕРЫ КОМАНД И КНОПОК ---
+# --- ХЕНДЛЕРЫ ---
 @dp.message(Command("start"))
 async def start(m: types.Message):
     kb = ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="📝 Отчет за сегодня")],
         [KeyboardButton(text="📊 Отчет за день"), KeyboardButton(text="📅 Выбрать промежуток")]
     ], resize_keyboard=True)
-    await m.answer("📦 Бот готов. Используйте меню или введите: 'Участок 1 Название 10'", reply_markup=kb)
+    await m.answer("📦 Бот готов. Участки теперь считаются раздельно.", reply_markup=kb)
 
 @dp.message(F.text == "📝 Отчет за сегодня")
 async def report_today(m: types.Message):
     n = datetime.now(); inv, out = aggregate_data(n, n)
     pdf = create_single_pdf(inv, out, n.strftime("%d.%m.%Y"))
-    await bot.send_document(m.chat.id, BufferedInputFile(pdf.read(), filename="Today.pdf"))
+    await bot.send_document(m.chat.id, BufferedInputFile(pdf.read(), filename="Report_Today.pdf"))
 
 @dp.message(F.text == "📊 Отчет за день")
 async def report_day_cmd(m: types.Message):
@@ -231,7 +220,7 @@ async def report_day_cmd(m: types.Message):
 async def report_range_cmd(m: types.Message):
     await m.answer("Выберите месяц НАЧАЛА:", reply_markup=get_months_kb("mon_start"))
 
-# --- CALLBACKS: ОДИН ДЕНЬ ---
+# --- CALLBACKS ДАТЫ ---
 @dp.callback_query(F.data.startswith("mon_single_"))
 async def mon_single(cb: types.CallbackQuery):
     m = cb.data.split("_")[2]
@@ -246,7 +235,6 @@ async def day_single_finish(cb: types.CallbackQuery):
     await bot.send_document(cb.message.chat.id, BufferedInputFile(pdf.read(), filename=f"Report_{d_str}.pdf"))
     await cb.message.delete()
 
-# --- CALLBACKS: ПРОМЕЖУТОК ---
 @dp.callback_query(F.data.startswith("mon_start_"))
 async def mon_start(cb: types.CallbackQuery):
     m = cb.data.split("_")[2]
@@ -256,7 +244,7 @@ async def mon_start(cb: types.CallbackQuery):
 async def day_start_save(cb: types.CallbackQuery, state: FSMContext):
     date_start = cb.data.split("_")[2]
     await state.update_data(start_date=date_start)
-    await cb.message.edit_text(f"Начало: {date_start}. Теперь выберите месяц КОНЦА:", reply_markup=get_months_kb("mon_end"))
+    await cb.message.edit_text(f"Начало: {date_start}. Теперь месяц КОНЦА:", reply_markup=get_months_kb("mon_end"))
 
 @dp.callback_query(F.data.startswith("mon_end_"))
 async def mon_end(cb: types.CallbackQuery):
@@ -266,31 +254,23 @@ async def mon_end(cb: types.CallbackQuery):
 @dp.callback_query(F.data.startswith("day_end_"))
 async def day_end_finish(cb: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    d1_str = data.get("start_date")
-    d2_str = cb.data.split("_")[2]
-    
-    dt1 = datetime.strptime(d1_str, "%d.%m.%Y")
-    dt2 = datetime.strptime(d2_str, "%d.%m.%Y")
-    
+    d1_str, d2_str = data.get("start_date"), cb.data.split("_")[2]
+    dt1, dt2 = datetime.strptime(d1_str, "%d.%m.%Y"), datetime.strptime(d2_str, "%d.%m.%Y")
     inv, out = aggregate_data(dt1, dt2)
     pdf = create_single_pdf(inv, out, f"{d1_str} - {d2_str}")
     await bot.send_document(cb.message.chat.id, BufferedInputFile(pdf.read(), filename="Range_Report.pdf"))
-    await cb.message.delete()
-    await state.clear()
+    await cb.message.delete(); await state.clear()
 
-# --- УНИВЕРСАЛЬНЫЙ ОБРАБОТЧИК (Regex) ---
+# --- ОБРАБОТКА ВВОДА ---
 @dp.message()
 async def handle_all(m: types.Message):
     match = re.search(r'(?i)(участ(?:ок|-к)?\s*(\d+))\s+(.+)\s+(\d+)$', m.text)
     if match:
         save_order_to_sheet(f"Участок {match.group(2)}", match.group(3).strip(), match.group(4))
         await m.answer("✅ Запись добавлена")
-    else:
-        pass 
 
 async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
-
