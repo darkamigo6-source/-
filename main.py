@@ -109,20 +109,33 @@ def create_single_pdf(inventory, out_inv, period_text):
     margin = 35
     col_w = (w - margin*2 - 15) / 2
 
+    # Данные по участкам
     p1 = sorted([(v['name'], v['p1']) for v in inventory.values() if v['p1'] > 0])
     p2 = sorted([(v['name'], v['p2']) for v in inventory.values() if v['p2'] > 0])
     outs = sorted([(k, v) for k, v in out_inv.items()])
 
-    total_in = sum(qty for name, qty in p1 + p2)
-    total_out = sum(qty for name, qty in outs)
+    # Считаем суммы для каждого блока отдельно
+    sum_p1 = sum(qty for _, qty in p1)
+    sum_p2 = sum(qty for _, qty in p2)
+    sum_outs = sum(qty for _, qty in outs)
+    
+    # Общие итоги для подвала
+    total_in = sum_p1 + sum_p2
+    total_out = sum_outs
 
-    # ИСПРАВЛЕННАЯ ЛОГИКА ОТРИСОВКИ С УЧЕТОМ СТРАНИЦ
+    # Формируем список строк для печати с разделителями "ИТОГО"
     in_items = []
-    if p1: in_items += [("HEADER", "ПРИХОД: УЧАСТОК 1", "#E8F0FE")] + p1
-    if p2: in_items += [("HEADER", "ПРИХОД: УЧАСТОК 2", "#E8F0FE")] + p2
+    if p1:
+        in_items += [("HEADER", "ПРИХОД: УЧАСТОК 1", "#E8F0FE")] + p1
+        in_items += [("TOTAL_BLOCK", "ИТОГО УЧ. 1:", sum_p1)]
+    if p2:
+        in_items += [("HEADER", "ПРИХОД: УЧАСТОК 2", "#E8F0FE")] + p2
+        in_items += [("TOTAL_BLOCK", "ИТОГО УЧ. 2:", sum_p2)]
         
     out_items = []
-    if outs: out_items += [("HEADER", "ОТГРУЗКА (OUT)", "#FFF2CC")] + outs
+    if outs:
+        out_items += [("HEADER", "ОТГРУЗКА (OUT)", "#FFF2CC")] + outs
+        out_items += [("TOTAL_BLOCK", "ИТОГО ОТГРУЗКА:", sum_outs)]
 
     def draw_page_framework(page_num):
         c.setFont(FONT_NAME, 14)
@@ -137,8 +150,9 @@ def create_single_pdf(inventory, out_inv, period_text):
     def draw_column(items, x_pos):
         y_pos = h - 85
         for i, item in enumerate(items):
-            if y_pos < 110: # Конец страницы
-                return items[i:] # Возвращаем то, что не влезло
+            if y_pos < 110: 
+                return items[i:]
+
             if item[0] == "HEADER":
                 c.setFillColor(colors.HexColor(item[2]))
                 c.rect(x_pos, y_pos-16, col_w, 16, fill=1, stroke=1)
@@ -146,9 +160,19 @@ def create_single_pdf(inventory, out_inv, period_text):
                 c.setFont(FONT_NAME, 9)
                 c.drawCentredString(x_pos + col_w/2, y_pos - 12, item[1])
                 y_pos -= 25
+            elif item[0] == "TOTAL_BLOCK":
+                # Рисуем жирную линию и итог участка
+                c.setStrokeColor(colors.black)
+                c.setLineWidth(1)
+                c.line(x_pos, y_pos-2, x_pos+col_w, y_pos-2)
+                c.setFont(FONT_NAME, 9)
+                c.drawString(x_pos+3, y_pos-14, item[1])
+                c.drawRightString(x_pos+col_w-3, y_pos-14, f"{float(item[2]):.1f}")
+                y_pos -= 30
             else:
                 name, qty = item
                 c.setStrokeColor(colors.HexColor("#DDDDDD"))
+                c.setLineWidth(0.5)
                 c.line(x_pos, y_pos-12, x_pos+col_w, y_pos-12)
                 c.setFillColor(colors.black)
                 c.setFont(FONT_NAME, 8.5)
@@ -160,11 +184,8 @@ def create_single_pdf(inventory, out_inv, period_text):
     page_num = 1
     while in_items or out_items:
         draw_page_framework(page_num)
-        if in_items:
-            in_items = draw_column(in_items, margin)
-        if out_items:
-            out_items = draw_column(out_items, margin + col_w + 15)
-            
+        if in_items: in_items = draw_column(in_items, margin)
+        if out_items: out_items = draw_column(out_items, margin + col_w + 15)
         if in_items or out_items:
             c.showPage()
             page_num += 1
@@ -272,3 +293,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
