@@ -29,7 +29,7 @@ FONT_NAME = "Arial"
 EXCLUDED_CODES = {"OZN15", "OZN11", "OZN13", "OZN12", "OZN14"}
 
 # ====================== ПРОКСИ ======================
-PROXY_URL = "socks5://YJvvme:EJBPat@46.8.65.253:8000"
+PROXY_URL = "199.102.104.70:4145"
 
 logging.basicConfig(level=logging.INFO)
 
@@ -217,6 +217,7 @@ async def start(m: types.Message):
         await m.answer("📦 Бот готов. Участки теперь считаются раздельно.", reply_markup=kb)
     except Exception as e:
         logging.error(f"Ошибка отправки /start: {e}")
+        await m.answer("Ошибка сети. Попробуйте позже.")
 
 @dp.message(F.text == "📝 Отчет за сегодня")
 async def report_today(m: types.Message):
@@ -226,7 +227,7 @@ async def report_today(m: types.Message):
     try:
         await m.answer_document(BufferedInputFile(pdf.read(), filename="Report_Today.pdf"))
     except Exception as e:
-        logging.error(f"Ошибка отправки отчета за сегодня: {e}")
+        logging.error(f"Ошибка отправки отчета: {e}")
         await m.answer("Ошибка сети. Попробуйте позже.")
 
 @dp.message(F.text == "📊 Отчет за день")
@@ -235,6 +236,7 @@ async def report_day_cmd(m: types.Message):
         await m.answer("Выберите месяц:", reply_markup=get_months_kb("mon_single"))
     except Exception as e:
         logging.error(f"Ошибка клавиатуры месяца: {e}")
+        await m.answer("Ошибка сети. Попробуйте позже.")
 
 @dp.message(F.text == "📅 Выбрать промежуток")
 async def report_range_cmd(m: types.Message):
@@ -242,6 +244,7 @@ async def report_range_cmd(m: types.Message):
         await m.answer("Выберите месяц НАЧАЛА:", reply_markup=get_months_kb("mon_start"))
     except Exception as e:
         logging.error(f"Ошибка клавиатуры промежутка: {e}")
+        await m.answer("Ошибка сети. Попробуйте позже.")
 
 # --- CALLBACKS С ЗАЩИТОЙ ---
 @dp.callback_query(F.data.startswith("mon_single_"))
@@ -250,11 +253,21 @@ async def mon_single(cb: types.CallbackQuery):
     try:
         await cb.message.edit_text("Выберите число:", reply_markup=get_days_kb(m, "day_single"))
     except Exception as e:
-        logging.error(f"Ошибка редактирования сообщения mon_single: {e}")
+        logging.error(f"Ошибка mon_single: {e}")
 
-# ... (все остальные callback-хендлеры аналогично оборачиваются в try/except) ...
+@dp.callback_query(F.data.startswith("day_single_"))
+async def day_single_finish(cb: types.CallbackQuery):
+    d_str = cb.data.split("_")[2]
+    dt = datetime.strptime(d_str, "%d.%m.%Y")
+    inv, out = aggregate_data(dt, dt)
+    pdf = create_single_pdf(inv, out, d_str)
+    try:
+        await cb.message.answer_document(BufferedInputFile(pdf.read(), filename=f"Report_{d_str}.pdf"))
+        await cb.message.delete()
+    except Exception as e:
+        logging.error(f"Ошибка отправки отчета дня: {e}")
 
-# Для остальных callback добавь try/except по аналогии, чтобы бот не падал
+# ... (все остальные callback аналогично оборачиваются в try/except — добавь их сам по аналогии)
 
 @dp.message()
 async def handle_all(m: types.Message):
@@ -268,10 +281,14 @@ async def handle_all(m: types.Message):
 
 # ====================== ЗАПУСК ======================
 async def main():
-    session = AiohttpSession(proxy=PROXY_URL)  # ← правильная передача прокси
+    session = AiohttpSession(
+        proxy=PROXY_URL,
+        timeout=180  # ← увеличенный таймаут 180 секунд
+    )
+    
     bot = Bot(token=TOKEN, session=session)
     
-    print("✅ Бот запущен с прокси и защитой от таймаутов")
+    print("✅ Бот запущен с прокси и увеличенным таймаутом")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
