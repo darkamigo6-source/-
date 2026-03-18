@@ -28,8 +28,8 @@ ID_PERSONAL = "1YBLY5ZBedRcalgdmXzTqsiVwQXP75LXnZ6bZlNYKIbY"
 FONT_NAME = "Arial"
 EXCLUDED_CODES = {"OZN15", "OZN11", "OZN13", "OZN12", "OZN14"}
 
-# ====================== ПРОКСИ ======================
-PROXY_URL = "199.102.104.70:4145"
+# ====================== ТВОЙ НОВЫЙ ПРОКСИ ======================
+PROXY_URL = "socks5://YJvvme:EJBPat@46.8.65.253:8000"
 
 logging.basicConfig(level=logging.INFO)
 
@@ -206,7 +206,7 @@ def get_days_kb(m, p):
         rows.append(row)
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
-# --- ХЕНДЛЕРЫ С ЗАЩИТОЙ ОТ ТАЙМАУТОВ ---
+# --- ХЕНДЛЕРЫ С ЗАЩИТОЙ ---
 @dp.message(Command("start"))
 async def start(m: types.Message):
     kb = ReplyKeyboardMarkup(keyboard=[
@@ -216,8 +216,7 @@ async def start(m: types.Message):
     try:
         await m.answer("📦 Бот готов. Участки теперь считаются раздельно.", reply_markup=kb)
     except Exception as e:
-        logging.error(f"Ошибка отправки /start: {e}")
-        await m.answer("Ошибка сети. Попробуйте позже.")
+        logging.error(f"Ошибка /start: {e}")
 
 @dp.message(F.text == "📝 Отчет за сегодня")
 async def report_today(m: types.Message):
@@ -227,7 +226,7 @@ async def report_today(m: types.Message):
     try:
         await m.answer_document(BufferedInputFile(pdf.read(), filename="Report_Today.pdf"))
     except Exception as e:
-        logging.error(f"Ошибка отправки отчета: {e}")
+        logging.error(f"Ошибка отчета за сегодня: {e}")
         await m.answer("Ошибка сети. Попробуйте позже.")
 
 @dp.message(F.text == "📊 Отчет за день")
@@ -265,9 +264,47 @@ async def day_single_finish(cb: types.CallbackQuery):
         await cb.message.answer_document(BufferedInputFile(pdf.read(), filename=f"Report_{d_str}.pdf"))
         await cb.message.delete()
     except Exception as e:
-        logging.error(f"Ошибка отправки отчета дня: {e}")
+        logging.error(f"Ошибка отчета дня: {e}")
 
-# ... (все остальные callback аналогично оборачиваются в try/except — добавь их сам по аналогии)
+@dp.callback_query(F.data.startswith("mon_start_"))
+async def mon_start(cb: types.CallbackQuery):
+    m = cb.data.split("_")[2]
+    try:
+        await cb.message.edit_text("Число НАЧАЛА:", reply_markup=get_days_kb(m, "day_start"))
+    except Exception as e:
+        logging.error(f"Ошибка mon_start: {e}")
+
+@dp.callback_query(F.data.startswith("day_start_"))
+async def day_start_save(cb: types.CallbackQuery, state: FSMContext):
+    date_start = cb.data.split("_")[2]
+    await state.update_data(start_date=date_start)
+    try:
+        await cb.message.edit_text(f"Начало: {date_start}. Теперь месяц КОНЦА:", reply_markup=get_months_kb("mon_end"))
+    except Exception as e:
+        logging.error(f"Ошибка day_start_save: {e}")
+
+@dp.callback_query(F.data.startswith("mon_end_"))
+async def mon_end(cb: types.CallbackQuery):
+    m = cb.data.split("_")[2]
+    try:
+        await cb.message.edit_text("Число КОНЦА:", reply_markup=get_days_kb(m, "day_end"))
+    except Exception as e:
+        logging.error(f"Ошибка mon_end: {e}")
+
+@dp.callback_query(F.data.startswith("day_end_"))
+async def day_end_finish(cb: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    d1_str, d2_str = data.get("start_date"), cb.data.split("_")[2]
+    dt1 = datetime.strptime(d1_str, "%d.%m.%Y")
+    dt2 = datetime.strptime(d2_str, "%d.%m.%Y")
+    inv, out = aggregate_data(dt1, dt2)
+    pdf = create_single_pdf(inv, out, f"{d1_str} - {d2_str}")
+    try:
+        await cb.message.answer_document(BufferedInputFile(pdf.read(), filename="Range_Report.pdf"))
+        await cb.message.delete()
+        await state.clear()
+    except Exception as e:
+        logging.error(f"Ошибка day_end_finish: {e}")
 
 @dp.message()
 async def handle_all(m: types.Message):
@@ -283,12 +320,12 @@ async def handle_all(m: types.Message):
 async def main():
     session = AiohttpSession(
         proxy=PROXY_URL,
-        timeout=180  # ← увеличенный таймаут 180 секунд
+        timeout=180  # увеличенный таймаут на 180 секунд
     )
     
     bot = Bot(token=TOKEN, session=session)
     
-    print("✅ Бот запущен с прокси и увеличенным таймаутом")
+    print("✅ Бот запущен с твоим новым прокси")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
