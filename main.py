@@ -4,6 +4,7 @@ import calendar
 import logging
 import re
 from datetime import datetime
+
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton
@@ -11,7 +12,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.session.aiohttp import AiohttpSession
-from aiohttp_socks import ProxyConnector   # ← для прокси
+from aiohttp_socks import ProxyConnector
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -21,31 +22,26 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
 
-# ====================== ПРОКСИ ======================
-PROXY_URL = "socks5://YJvvme:EJBPat@46.8.65.253:8000"
-# ===================================================
-
-# --- КОНФИГУРАЦИЯ ---
+# ====================== НАСТРОЙКИ ======================
 TOKEN = "8364799110:AAHZgoSmjBF-C1rnqOyaMeft4VbBoD7Wkys"
 ID_JOURNAL = "1QfNVhgoskG-2S0kebjmaUXzl6FbFMuxIfWGioftqRDw"
 ID_PERSONAL = "1YBLY5ZBedRcalgdmXzTqsiVwQXP75LXnZ6bZlNYKIbY"
 FONT_NAME = "Arial"
 EXCLUDED_CODES = {"OZN15", "OZN11", "OZN13", "OZN12", "OZN14"}
 
+# ====================== ПРОКСИ ======================
+PROXY_URL = "socks5://YJvvme:EJBPat@46.8.65.253:8000"
+# ===================================================
+
 logging.basicConfig(level=logging.INFO)
 
-# ====================== ПРОКСИ СЕССИЯ ======================
-connector = ProxyConnector.from_url(PROXY_URL)
-session = AiohttpSession(connector=connector)
-
-bot = Bot(token=TOKEN, session=session)
 dp = Dispatcher(storage=MemoryStorage())
 
 class ReportStates(StatesGroup):
     wait_start_date = State()
     wait_end_date = State()
 
-# --- ФУНКЦИИ GOOGLE ---
+# --- GOOGLE FUNCTIONS ---
 def get_client():
     scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
     creds = Credentials.from_service_account_file('creds.json', scopes=scopes)
@@ -65,17 +61,17 @@ def parse_any_date(date_str):
     try:
         clean_date = date_str.split()[0].replace(',', '.').strip()
         return datetime.strptime(clean_date, "%d.%m.%Y").date()
-    except: 
+    except:
         return None
 
-# --- АГРЕГАЦИЯ ДАННЫХ ---
+# --- AGGREGATE DATA ---
 def aggregate_data(start_dt, end_dt):
     gc = get_client()
     inventory, out_inv = {}, {}
     try:
         sh_p = gc.open_by_key(ID_PERSONAL)
         product_map = {row[0].strip(): row[1].strip() for row in sh_p.worksheet("settings_products").get_all_values()[1:] if row[0]}
-    except: 
+    except:
         product_map = {}
 
     for ss_id, sheet_name in [(ID_JOURNAL, "Журнал"), (ID_PERSONAL, "Заказы_Бот")]:
@@ -95,9 +91,9 @@ def aggregate_data(start_dt, end_dt):
                     if name_raw in EXCLUDED_CODES: continue
 
                 name = product_map.get(code if sheet_name=="Журнал" else name_raw, name_raw)
-                try: 
+                try:
                     qty = float(str(qty_raw).replace(',', '.'))
-                except: 
+                except:
                     qty = 0
                 
                 if "OUT" in op:
@@ -110,11 +106,11 @@ def aggregate_data(start_dt, end_dt):
                         inventory[k]["p1"] += qty
                     elif "2" in sec_clean:
                         inventory[k]["p2"] += qty
-        except: 
+        except:
             continue
     return inventory, out_inv
 
-# --- ГЕНЕРАЦИЯ PDF ---
+# --- PDF GENERATION ---
 def create_single_pdf(inventory, out_inv, period_text):
     buffer = io.BytesIO()
     pdfmetrics.registerFont(TTFont(FONT_NAME, "arial.ttf"))
@@ -131,9 +127,6 @@ def create_single_pdf(inventory, out_inv, period_text):
     sum_p2 = sum(qty for _, qty in p2)
     sum_outs = sum(qty for _, qty in outs)
     total_in = sum_p1 + sum_p2
-
-    # ... (весь остальной код генерации PDF без изменений) ...
-    # (я оставил его полностью, чтобы не было ошибок)
 
     in_items = []
     if p1:
@@ -165,11 +158,13 @@ def create_single_pdf(inventory, out_inv, period_text):
             if item[0] == "HEADER":
                 c.setFillColor(colors.HexColor(item[2]))
                 c.rect(x_pos, y_pos-16, col_w, 16, fill=1, stroke=1)
-                c.setFillColor(colors.black); c.setFont(FONT_NAME, 9)
+                c.setFillColor(colors.black)
+                c.setFont(FONT_NAME, 9)
                 c.drawCentredString(x_pos + col_w/2, y_pos - 12, item[1])
                 y_pos -= 25
             elif item[0] == "TOTAL_BLOCK":
-                c.setStrokeColor(colors.black); c.setLineWidth(1)
+                c.setStrokeColor(colors.black)
+                c.setLineWidth(1)
                 c.line(x_pos, y_pos-2, x_pos+col_w, y_pos-2)
                 c.setFont(FONT_NAME, 9)
                 c.drawString(x_pos+3, y_pos-14, item[1])
@@ -177,9 +172,11 @@ def create_single_pdf(inventory, out_inv, period_text):
                 y_pos -= 35
             else:
                 name, qty = item
-                c.setStrokeColor(colors.HexColor("#DDDDDD")); c.setLineWidth(0.5)
+                c.setStrokeColor(colors.HexColor("#DDDDDD"))
+                c.setLineWidth(0.5)
                 c.line(x_pos, y_pos-12, x_pos+col_w, y_pos-12)
-                c.setFillColor(colors.black); c.setFont(FONT_NAME, 8.5)
+                c.setFillColor(colors.black)
+                c.setFont(FONT_NAME, 8.5)
                 c.drawString(x_pos+3, y_pos-9, name[:40])
                 c.drawRightString(x_pos+col_w-3, y_pos-9, f"{float(qty):.1f}")
                 y_pos -= 12
@@ -220,7 +217,63 @@ async def start(m: types.Message):
     ], resize_keyboard=True)
     await m.answer("📦 Бот готов. Участки теперь считаются раздельно.", reply_markup=kb)
 
-# ... (все остальные хендлеры остаются точно такими же, как у тебя были) ...
+@dp.message(F.text == "📝 Отчет за сегодня")
+async def report_today(m: types.Message):
+    n = datetime.now()
+    inv, out = aggregate_data(n, n)
+    pdf = create_single_pdf(inv, out, n.strftime("%d.%m.%Y"))
+    await m.answer_document(BufferedInputFile(pdf.read(), filename="Report_Today.pdf"))
+
+@dp.message(F.text == "📊 Отчет за день")
+async def report_day_cmd(m: types.Message):
+    await m.answer("Выберите месяц:", reply_markup=get_months_kb("mon_single"))
+
+@dp.message(F.text == "📅 Выбрать промежуток")
+async def report_range_cmd(m: types.Message):
+    await m.answer("Выберите месяц НАЧАЛА:", reply_markup=get_months_kb("mon_start"))
+
+# --- CALLBACKS ---
+@dp.callback_query(F.data.startswith("mon_single_"))
+async def mon_single(cb: types.CallbackQuery):
+    m = cb.data.split("_")[2]
+    await cb.message.edit_text("Выберите число:", reply_markup=get_days_kb(m, "day_single"))
+
+@dp.callback_query(F.data.startswith("day_single_"))
+async def day_single_finish(cb: types.CallbackQuery):
+    d_str = cb.data.split("_")[2]
+    dt = datetime.strptime(d_str, "%d.%m.%Y")
+    inv, out = aggregate_data(dt, dt)
+    pdf = create_single_pdf(inv, out, d_str)
+    await cb.message.answer_document(BufferedInputFile(pdf.read(), filename=f"Report_{d_str}.pdf"))
+    await cb.message.delete()
+
+@dp.callback_query(F.data.startswith("mon_start_"))
+async def mon_start(cb: types.CallbackQuery):
+    m = cb.data.split("_")[2]
+    await cb.message.edit_text("Число НАЧАЛА:", reply_markup=get_days_kb(m, "day_start"))
+
+@dp.callback_query(F.data.startswith("day_start_"))
+async def day_start_save(cb: types.CallbackQuery, state: FSMContext):
+    date_start = cb.data.split("_")[2]
+    await state.update_data(start_date=date_start)
+    await cb.message.edit_text(f"Начало: {date_start}. Теперь месяц КОНЦА:", reply_markup=get_months_kb("mon_end"))
+
+@dp.callback_query(F.data.startswith("mon_end_"))
+async def mon_end(cb: types.CallbackQuery):
+    m = cb.data.split("_")[2]
+    await cb.message.edit_text("Число КОНЦА:", reply_markup=get_days_kb(m, "day_end"))
+
+@dp.callback_query(F.data.startswith("day_end_"))
+async def day_end_finish(cb: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    d1_str, d2_str = data.get("start_date"), cb.data.split("_")[2]
+    dt1 = datetime.strptime(d1_str, "%d.%m.%Y")
+    dt2 = datetime.strptime(d2_str, "%d.%m.%Y")
+    inv, out = aggregate_data(dt1, dt2)
+    pdf = create_single_pdf(inv, out, f"{d1_str} - {d2_str}")
+    await cb.message.answer_document(BufferedInputFile(pdf.read(), filename="Range_Report.pdf"))
+    await cb.message.delete()
+    await state.clear()
 
 @dp.message()
 async def handle_all(m: types.Message):
@@ -229,12 +282,15 @@ async def handle_all(m: types.Message):
         save_order_to_sheet(f"Участок {match.group(2)}", match.group(3).strip(), match.group(4))
         await m.answer("✅ Запись добавлена")
 
-# --- ЗАПУСК ---
+# ====================== ЗАПУСК С ПРОКСИ ======================
 async def main():
+    connector = ProxyConnector.from_url(PROXY_URL)
+    session = AiohttpSession(connector=connector)
+    
+    bot = Bot(token=TOKEN, session=session)
+    
+    print("✅ Бот запущен с прокси 46.8.65.253:8000")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        pass
+    asyncio.run(main())
