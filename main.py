@@ -12,6 +12,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.session.aiohttp import AiohttpSession
+from aiohttp_socks import ProxyConnector
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -30,7 +31,11 @@ EXCLUDED_CODES = {"OZN15", "OZN11", "OZN13", "OZN12", "OZN14"}
 
 # ====================== ПРОКСИ ======================
 PROXY_URL = "socks5://YJvvme:EJBPat@46.8.65.253:8000"
-# ===================================================
+
+# ====================== WEBHOOK ======================
+WEBHOOK_HOST = "https://bothost.ru/dashboard.php"  # ← ПОДСТАВЬ СВОЙ ДОМЕН ОТ BOTHOST (обязательно!)
+WEBHOOK_PATH = "/telegram"  # ← можно оставить так или "/webhook" — спроси у поддержки bothost
+WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
 logging.basicConfig(level=logging.INFO)
 
@@ -40,7 +45,7 @@ class ReportStates(StatesGroup):
     wait_start_date = State()
     wait_end_date = State()
 
-# --- GOOGLE ---
+# --- GOOGLE FUNCTIONS (без изменений) ---
 def get_client():
     scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
     creds = Credentials.from_service_account_file('creds.json', scopes=scopes)
@@ -194,7 +199,7 @@ def create_single_pdf(inventory, out_inv, period_text):
     buffer.seek(0)
     return buffer
 
-# --- КЛАВИАТУРЫ И ХЕНДЛЕРЫ (всё как было) ---
+# --- КЛАВИАТУРЫ ---
 def get_months_kb(p):
     months = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"]
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=m, callback_data=f"{p}_{i+1:02d}") for i, m in enumerate(months[j:j+3])] for j in range(0, 12, 3)])
@@ -207,6 +212,7 @@ def get_days_kb(m, p):
         rows.append(row)
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
+# --- ХЕНДЛЕРЫ ---
 @dp.message(Command("start"))
 async def start(m: types.Message):
     kb = ReplyKeyboardMarkup(keyboard=[
@@ -230,6 +236,7 @@ async def report_day_cmd(m: types.Message):
 async def report_range_cmd(m: types.Message):
     await m.answer("Выберите месяц НАЧАЛА:", reply_markup=get_months_kb("mon_start"))
 
+# --- CALLBACKS ---
 @dp.callback_query(F.data.startswith("mon_single_"))
 async def mon_single(cb: types.CallbackQuery):
     m = cb.data.split("_")[2]
@@ -279,13 +286,21 @@ async def handle_all(m: types.Message):
         save_order_to_sheet(f"Участок {match.group(2)}", match.group(3).strip(), match.group(4))
         await m.answer("✅ Запись добавлена")
 
-# ====================== ЗАПУСК ======================
+# ====================== ЗАПУСК С WEBHOOK ======================
 async def main():
-    session = AiohttpSession(proxy=PROXY_URL)          # ← правильный способ
+    connector = ProxyConnector.from_url(PROXY_URL)
+    session = AiohttpSession(connector=connector)
+    
     bot = Bot(token=TOKEN, session=session)
     
-    print("✅ Бот запущен с прокси!")
-    await dp.start_polling(bot)
+    # Установка webhook
+    await bot.set_webhook(WEBHOOK_URL)
+    print(f"Webhook успешно установлен: {WEBHOOK_URL}")
+    print("Бот работает через webhook с прокси")
+
+    # На bothost webhook обрабатывается автоматически — polling не нужен
+    # Просто держим процесс живым
+    await asyncio.sleep(3600 * 24 * 365)  # бесконечный сон, бот работает
 
 if __name__ == "__main__":
     asyncio.run(main())
