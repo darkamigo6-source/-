@@ -33,10 +33,7 @@ EXCLUDED_CODES = {"OZN15", "OZN11", "OZN13", "OZN12", "OZN14"}
 
 logging.basicConfig(level=logging.INFO)
 
-# ИСПРАВЛЕНИЕ: Принудительный IPv4 для обхода "Connection reset by peer"
-connector = TCPConnector(family=socket.AF_INET)
-session = AiohttpSession(connector=connector)
-bot = Bot(token=TOKEN, session=session)
+# Инициализируем только диспетчер глобально
 dp = Dispatcher(storage=MemoryStorage())
 
 class ReportStates(StatesGroup):
@@ -211,9 +208,10 @@ async def start(m: types.Message):
 
 @dp.message(F.text == "📝 Отчет за сегодня")
 async def report_today(m: types.Message):
-    n = datetime.now(); inv, out = aggregate_data(n, n)
+    n = datetime.now()
+    inv, out = aggregate_data(n, n)
     pdf = create_single_pdf(inv, out, n.strftime("%d.%m.%Y"))
-    await bot.send_document(m.chat.id, BufferedInputFile(pdf.read(), filename="Report_Today.pdf"))
+    await m.answer_document(BufferedInputFile(pdf.read(), filename="Report_Today.pdf"))
 
 @dp.message(F.text == "📊 Отчет за день")
 async def report_day_cmd(m: types.Message):
@@ -235,7 +233,7 @@ async def day_single_finish(cb: types.CallbackQuery):
     dt = datetime.strptime(d_str, "%d.%m.%Y")
     inv, out = aggregate_data(dt, dt)
     pdf = create_single_pdf(inv, out, d_str)
-    await bot.send_document(cb.message.chat.id, BufferedInputFile(pdf.read(), filename=f"Report_{d_str}.pdf"))
+    await cb.message.answer_document(BufferedInputFile(pdf.read(), filename=f"Report_{d_str}.pdf"))
     await cb.message.delete()
 
 @dp.callback_query(F.data.startswith("mon_start_"))
@@ -261,8 +259,9 @@ async def day_end_finish(cb: types.CallbackQuery, state: FSMContext):
     dt1, dt2 = datetime.strptime(d1_str, "%d.%m.%Y"), datetime.strptime(d2_str, "%d.%m.%Y")
     inv, out = aggregate_data(dt1, dt2)
     pdf = create_single_pdf(inv, out, f"{d1_str} - {d2_str}")
-    await bot.send_document(cb.message.chat.id, BufferedInputFile(pdf.read(), filename="Range_Report.pdf"))
-    await cb.message.delete(); await state.clear()
+    await cb.message.answer_document(BufferedInputFile(pdf.read(), filename="Range_Report.pdf"))
+    await cb.message.delete()
+    await state.clear()
 
 @dp.message()
 async def handle_all(m: types.Message):
@@ -271,7 +270,13 @@ async def handle_all(m: types.Message):
         save_order_to_sheet(f"Участок {match.group(2)}", match.group(3).strip(), match.group(4))
         await m.answer("✅ Запись добавлена")
 
+# --- ЗАПУСК ---
 async def main():
+    # Создаем коннектор и бота внутри запущенного цикла событий
+    connector = TCPConnector(family=socket.AF_INET)
+    session = AiohttpSession(connector=connector)
+    bot = Bot(token=TOKEN, session=session)
+    
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
