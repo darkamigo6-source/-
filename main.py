@@ -29,7 +29,7 @@ FONT_NAME = "Arial"
 EXCLUDED_CODES = {"OZN15", "OZN11", "OZN13", "OZN12", "OZN14"}
 
 # ====================== ТВОЙ НОВЫЙ ПРОКСИ ======================
-PROXY_URL = "socks5://YJvvme:EJBPat@46.8.65.253:8000"
+PROXY_URL = "socks5://39z58z:5eX4t3@45.86.21.10:8000"
 
 logging.basicConfig(level=logging.INFO)
 
