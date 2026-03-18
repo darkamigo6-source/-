@@ -21,7 +21,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
 
-# --- КОНФИГУРАЦИЯ ---
+# --- КОНФИГУРАЦИЯ (ТВОИ ДАННЫЕ) ---
 TOKEN = "8364799110:AAHZgoSmjBF-C1rnqOyaMeft4VbBoD7Wkys"
 ID_JOURNAL = "1QfNVhgoskG-2S0kebjmaUXzl6FbFMuxIfWGioftqRDw"
 ID_PERSONAL = "1YBLY5ZBedRcalgdmXzTqsiVwQXP75LXnZ6bZlNYKIbY"
@@ -30,7 +30,6 @@ EXCLUDED_CODES = {"OZN15", "OZN11", "OZN13", "OZN12", "OZN14"}
 
 logging.basicConfig(level=logging.INFO)
 
-# Инициализируем диспетчер глобально
 dp = Dispatcher(storage=MemoryStorage())
 
 class ReportStates(StatesGroup):
@@ -269,9 +268,11 @@ async def handle_all(m: types.Message):
 
 # --- ЗАПУСК ---
 async def main():
-    # Создаем бота стандартно, aiogram сам всё разрулит
     bot = Bot(token=TOKEN)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        pass
