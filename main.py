@@ -12,7 +12,6 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.session.aiohttp import AiohttpSession
-from aiohttp_socks import ProxyConnector
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -31,11 +30,7 @@ EXCLUDED_CODES = {"OZN15", "OZN11", "OZN13", "OZN12", "OZN14"}
 
 # ====================== ПРОКСИ ======================
 PROXY_URL = "socks5://YJvvme:EJBPat@46.8.65.253:8000"
-
-# ====================== WEBHOOK ======================
-WEBHOOK_HOST = "https://bothost.ru/dashboard.php"  # ← ПОДСТАВЬ СВОЙ ДОМЕН ОТ BOTHOST (обязательно!)
-WEBHOOK_PATH = "/telegram"  # ← можно оставить так или "/webhook" — спроси у поддержки bothost
-WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+# ===================================================
 
 logging.basicConfig(level=logging.INFO)
 
@@ -45,7 +40,7 @@ class ReportStates(StatesGroup):
     wait_start_date = State()
     wait_end_date = State()
 
-# --- GOOGLE FUNCTIONS (без изменений) ---
+# --- GOOGLE FUNCTIONS ---
 def get_client():
     scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
     creds = Credentials.from_service_account_file('creds.json', scopes=scopes)
@@ -68,7 +63,7 @@ def parse_any_date(date_str):
     except:
         return None
 
-# --- aggregate_data (твой оригинальный код) ---
+# --- aggregate_data ---
 def aggregate_data(start_dt, end_dt):
     gc = get_client()
     inventory, out_inv = {}, {}
@@ -114,7 +109,7 @@ def aggregate_data(start_dt, end_dt):
             continue
     return inventory, out_inv
 
-# --- create_single_pdf (твой оригинальный код) ---
+# --- create_single_pdf ---
 def create_single_pdf(inventory, out_inv, period_text):
     buffer = io.BytesIO()
     pdfmetrics.registerFont(TTFont(FONT_NAME, "arial.ttf"))
@@ -286,21 +281,13 @@ async def handle_all(m: types.Message):
         save_order_to_sheet(f"Участок {match.group(2)}", match.group(3).strip(), match.group(4))
         await m.answer("✅ Запись добавлена")
 
-# ====================== ЗАПУСК С WEBHOOK ======================
+# ====================== ЗАПУСК С ПРОКСИ ======================
 async def main():
-    connector = ProxyConnector.from_url(PROXY_URL)
-    session = AiohttpSession(connector=connector)
-    
+    session = AiohttpSession(proxy=PROXY_URL)  # ← правильный способ для aiogram 3.x
     bot = Bot(token=TOKEN, session=session)
     
-    # Установка webhook
-    await bot.set_webhook(WEBHOOK_URL)
-    print(f"Webhook успешно установлен: {WEBHOOK_URL}")
-    print("Бот работает через webhook с прокси")
-
-    # На bothost webhook обрабатывается автоматически — polling не нужен
-    # Просто держим процесс живым
-    await asyncio.sleep(3600 * 24 * 365)  # бесконечный сон, бот работает
+    print("✅ Бот запущен с прокси!")
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
