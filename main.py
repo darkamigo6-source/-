@@ -3,7 +3,6 @@ import io
 import calendar
 import logging
 import re
-import socket
 from datetime import datetime
 
 from aiogram import Bot, Dispatcher, types, F
@@ -12,8 +11,6 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, BufferedInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.client.session.aiohttp import AiohttpSession
-from aiohttp import TCPConnector
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -33,7 +30,7 @@ EXCLUDED_CODES = {"OZN15", "OZN11", "OZN13", "OZN12", "OZN14"}
 
 logging.basicConfig(level=logging.INFO)
 
-# Инициализируем только диспетчер глобально
+# Инициализируем диспетчер глобально
 dp = Dispatcher(storage=MemoryStorage())
 
 class ReportStates(StatesGroup):
@@ -272,11 +269,8 @@ async def handle_all(m: types.Message):
 
 # --- ЗАПУСК ---
 async def main():
-    # Создаем коннектор и бота внутри запущенного цикла событий
-    connector = TCPConnector(family=socket.AF_INET)
-    session = AiohttpSession(connector=connector)
-    bot = Bot(token=TOKEN, session=session)
-    
+    # Создаем бота стандартно, aiogram сам всё разрулит
+    bot = Bot(token=TOKEN)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
