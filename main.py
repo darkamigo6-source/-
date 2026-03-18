@@ -3,6 +3,7 @@ import io
 import calendar
 import logging
 import re
+import socket
 from datetime import datetime
 
 from aiogram import Bot, Dispatcher, types, F
@@ -11,6 +12,8 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, BufferedInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiohttp import TCPConnector
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -29,7 +32,11 @@ FONT_NAME = "Arial"
 EXCLUDED_CODES = {"OZN15", "OZN11", "OZN13", "OZN12", "OZN14"}
 
 logging.basicConfig(level=logging.INFO)
-bot = Bot(token=TOKEN)
+
+# ИСПРАВЛЕНИЕ: Принудительный IPv4 для обхода "Connection reset by peer"
+connector = TCPConnector(family=socket.AF_INET)
+session = AiohttpSession(connector=connector)
+bot = Bot(token=TOKEN, session=session)
 dp = Dispatcher(storage=MemoryStorage())
 
 class ReportStates(StatesGroup):
@@ -92,7 +99,6 @@ def aggregate_data(start_dt, end_dt):
                 else:
                     k = name.upper()
                     inventory.setdefault(k, {"name": name, "p1": 0, "p2": 0})
-                    # Точная проверка участка (исправляет проблему "32 упаковки")
                     sec_clean = str(sec).upper()
                     if "1" in sec_clean: 
                         inventory[k]["p1"] += qty
@@ -110,18 +116,15 @@ def create_single_pdf(inventory, out_inv, period_text):
     margin = 35
     col_w = (w - margin*2 - 15) / 2
 
-    # Списки данных
     p1 = sorted([(v['name'], v['p1']) for v in inventory.values() if v['p1'] > 0])
     p2 = sorted([(v['name'], v['p2']) for v in inventory.values() if v['p2'] > 0])
     outs = sorted([(k, v) for k, v in out_inv.items()])
 
-    # Итоги по группам
     sum_p1 = sum(qty for _, qty in p1)
     sum_p2 = sum(qty for _, qty in p2)
     sum_outs = sum(qty for _, qty in outs)
     total_in = sum_p1 + sum_p2
 
-    # Формируем структуру документа (с итогами после каждого блока)
     in_items = []
     if p1:
         in_items += [("HEADER", "ПРИХОД: УЧАСТОК 1", "#E8F0FE")] + p1
@@ -148,7 +151,7 @@ def create_single_pdf(inventory, out_inv, period_text):
     def draw_column(items, x_pos):
         y_pos = h - 85
         for i, item in enumerate(items):
-            if y_pos < 110: return items[i:] # Перенос на новую страницу
+            if y_pos < 110: return items[i:] 
 
             if item[0] == "HEADER":
                 c.setFillColor(colors.HexColor(item[2]))
@@ -261,7 +264,6 @@ async def day_end_finish(cb: types.CallbackQuery, state: FSMContext):
     await bot.send_document(cb.message.chat.id, BufferedInputFile(pdf.read(), filename="Range_Report.pdf"))
     await cb.message.delete(); await state.clear()
 
-# --- ОБРАБОТКА ВВОДА ---
 @dp.message()
 async def handle_all(m: types.Message):
     match = re.search(r'(?i)(участ(?:ок|-к)?\s*(\d+))\s+(.+)\s+(\d+)$', m.text)
