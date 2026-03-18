@@ -12,6 +12,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.client.session.middlewares.retry import RetryRequestMiddleware
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -30,7 +31,6 @@ EXCLUDED_CODES = {"OZN15", "OZN11", "OZN13", "OZN12", "OZN14"}
 
 # ====================== ПРОКСИ ======================
 PROXY_URL = "socks5://YJvvme:EJBPat@46.8.65.253:8000"
-# ===================================================
 
 logging.basicConfig(level=logging.INFO)
 
@@ -281,12 +281,21 @@ async def handle_all(m: types.Message):
         save_order_to_sheet(f"Участок {match.group(2)}", match.group(3).strip(), match.group(4))
         await m.answer("✅ Запись добавлена")
 
-# ====================== ЗАПУСК С ПРОКСИ ======================
+# ====================== ЗАПУСК С ПРОКСИ + RETRY ======================
 async def main():
-    session = AiohttpSession(proxy=PROXY_URL)  # ← правильный способ для aiogram 3.x
+    session = AiohttpSession(
+        proxy=PROXY_URL,
+        middlewares=[
+            RetryRequestMiddleware(
+                max_retries=10,           # до 10 попыток
+                timeout=60                # таймаут 60 сек
+            )
+        ]
+    )
+    
     bot = Bot(token=TOKEN, session=session)
     
-    print("✅ Бот запущен с прокси!")
+    print("✅ Бот запущен с прокси и автоматическими повторами")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
