@@ -12,7 +12,6 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.session.aiohttp import AiohttpSession
-from aiohttp_socks import ProxyConnector
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -41,7 +40,7 @@ class ReportStates(StatesGroup):
     wait_start_date = State()
     wait_end_date = State()
 
-# --- GOOGLE FUNCTIONS ---
+# --- GOOGLE ---
 def get_client():
     scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
     creds = Credentials.from_service_account_file('creds.json', scopes=scopes)
@@ -64,7 +63,7 @@ def parse_any_date(date_str):
     except:
         return None
 
-# --- AGGREGATE DATA ---
+# --- aggregate_data (твой оригинальный код) ---
 def aggregate_data(start_dt, end_dt):
     gc = get_client()
     inventory, out_inv = {}, {}
@@ -110,7 +109,7 @@ def aggregate_data(start_dt, end_dt):
             continue
     return inventory, out_inv
 
-# --- PDF GENERATION ---
+# --- create_single_pdf (твой оригинальный код) ---
 def create_single_pdf(inventory, out_inv, period_text):
     buffer = io.BytesIO()
     pdfmetrics.registerFont(TTFont(FONT_NAME, "arial.ttf"))
@@ -195,7 +194,7 @@ def create_single_pdf(inventory, out_inv, period_text):
     buffer.seek(0)
     return buffer
 
-# --- КЛАВИАТУРЫ ---
+# --- КЛАВИАТУРЫ И ХЕНДЛЕРЫ (всё как было) ---
 def get_months_kb(p):
     months = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"]
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=m, callback_data=f"{p}_{i+1:02d}") for i, m in enumerate(months[j:j+3])] for j in range(0, 12, 3)])
@@ -208,7 +207,6 @@ def get_days_kb(m, p):
         rows.append(row)
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
-# --- ХЕНДЛЕРЫ ---
 @dp.message(Command("start"))
 async def start(m: types.Message):
     kb = ReplyKeyboardMarkup(keyboard=[
@@ -232,7 +230,6 @@ async def report_day_cmd(m: types.Message):
 async def report_range_cmd(m: types.Message):
     await m.answer("Выберите месяц НАЧАЛА:", reply_markup=get_months_kb("mon_start"))
 
-# --- CALLBACKS ---
 @dp.callback_query(F.data.startswith("mon_single_"))
 async def mon_single(cb: types.CallbackQuery):
     m = cb.data.split("_")[2]
@@ -282,14 +279,12 @@ async def handle_all(m: types.Message):
         save_order_to_sheet(f"Участок {match.group(2)}", match.group(3).strip(), match.group(4))
         await m.answer("✅ Запись добавлена")
 
-# ====================== ЗАПУСК С ПРОКСИ ======================
+# ====================== ЗАПУСК ======================
 async def main():
-    connector = ProxyConnector.from_url(PROXY_URL)
-    session = AiohttpSession(connector=connector)
-    
+    session = AiohttpSession(proxy=PROXY_URL)          # ← правильный способ
     bot = Bot(token=TOKEN, session=session)
     
-    print("✅ Бот запущен с прокси 46.8.65.253:8000")
+    print("✅ Бот запущен с прокси!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
